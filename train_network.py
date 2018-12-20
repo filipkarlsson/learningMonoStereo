@@ -401,6 +401,78 @@ def train_iterative_net(data_loader, batch_size):
         pickle.dump(history.history, file_pi)
 
 
+
+def train_iterative_net_depth_and_motion(data_loader, batch_size):
+    # Init prev network
+    checkpoint_path_iter_flow = TRAINING_SAVE_FOLDER + "cp_iterative_flow.ckpt"
+    checkpoint_path = TRAINING_SAVE_FOLDER + "cp_iterative_depth_motion.ckpt"
+
+    # Load previous netwoks
+    bootstrap_network = full_bootstrap(batch_size)
+
+    bootstrap_inputs = bootstrap_network.inputs
+    bootstrap_outputs = bootstrap_network.outputs # Motion, depth, normals
+
+    iterative_network_flow = iterative_network.iterative_net_flow(batch_size)
+
+    iterative_net_flow_inputs = bootstrap_inputs + bootstrap_outputs
+
+    iterative_network_flow_outputs = iterative_network_flow(iterative_net_flow_inputs)
+
+    prev_network = Model(inputs=bootstrap_inputs, outputs=iterative_network_flow_outputs)
+
+    # Load weights
+    prev_network.load_weights(checkpoint_path_iter_flow)
+
+    # Fix weights
+    for layer in prev_network.layers:
+        layer.trainable = False
+
+    prev_network_out = prev_network.outputs
+
+    image_pair = prev_network.inputs[0]
+    flow_out = prev_network_out[2]
+    conf_out = prev_network_out[3]
+    motion_out = bootstrap_outputs[0]
+
+    iterative_network_depth_inputs = [image_pair, flow_out, conf_out, motion_out]
+
+    iterative_network_depth_outputs = iterative_network.iterative_net_depth(32)(iterative_network_depth_inputs)
+
+    iterative_network_full = Model(inputs=iterative_network_depth_inputs, outputs=iterative_network_depth_outputs)
+    print(iterative_network_full.summary())
+
+    # Create checkpoint callback
+    cp_callback = tf.keras.callbacks.ModelCheckpoint(checkpoint_path,
+                                                     save_weights_only=True,
+                                                     verbose=1, period=1000)
+    # create terminate on nan callback
+    nan_callback = tf.keras.callbacks.TerminateOnNaN()
+
+    # Compile model
+    adam = Adam(decay=0.0004)
+    loss_list = [custom_losses.mean_abs_error,
+                 custom_losses.euclidean_with_gradient_loss, custom_losses.normals_loss_from_depth_gt]
+    weights = [100, 300, 100]
+    iterative_network_full.compile(loss=loss_list, optimizer=adam,  loss_weights=weights)
+    print(iterative_network_full.summary())
+
+    # plot_model(bootstrap_net, to_file='bootstrap.png', show_shapes=True)
+
+    # Train model for 250k epochs
+    history = iterative_network_full.fit_generator(
+        generate_motion_depth_normals(data_loader), steps_per_epoch=1, epochs=250000, callbacks=[cp_callback, nan_callback])
+
+
+    print("Training complete!")
+
+    with open(TRAINING_SAVE_FOLDER + 'train_history_iterative_depth_motion.pickle', 'wb+') as file_pi:
+        pickle.dump(history.history, file_pi)
+        print("Saved weights to file")
+
+
+
+
 def eval_net(data_loader):
     import matplotlib.image as mpimg
 

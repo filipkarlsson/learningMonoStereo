@@ -180,6 +180,9 @@ def iterative_net_depth(batch_size):
     # Optical flow and conf input branch
     optical_flow_input = Input(batch_shape=(batch_size, 48, 64, 2), name='optical_flow_input')
     optical_flow_conf_input = Input(batch_shape=(batch_size, 48, 64, 2), name='confidense_input')
+    prev_motion = Input(batch_shape=(batch_size, 6), name='prev_motion_input')
+
+    depth_from_flow_and_motion = Lambda(helpers.depth_from_flow_and_motion)([optical_flow_input, prev_motion])
 
     second_image = Lambda(lambda x: slice(
         x, (0, 0, 0, 3), (-1, -1, -1, 3)))(image_pair)
@@ -187,14 +190,14 @@ def iterative_net_depth(batch_size):
     wraped_2nd_image = Lambda(helpers.warped_image_from_flow)(
         [second_image, optical_flow_input])
 
-    # Concatinate wraped 2nd image, optical flow and optical flow conf
-    # We dont have depth from flow and motion in bootstrap network
+    # Concatinate wraped 2nd image, optical flow, optical flow conf
+    # and depth from flow and motion
 
-    flow_conf_wraped2nd_merge = concatenate(
-        [optical_flow_input, optical_flow_conf_input, wraped_2nd_image])
+    flow_conf_wraped2nd_depth_merge = concatenate(
+        [depth_from_flow_and_motion, optical_flow_input, optical_flow_conf_input, wraped_2nd_image])
 
     layer_wraped_input_a = Conv2D(32, kernel_size=(3, 1), strides=(
-        1, 1), activation='relu', padding='same')(flow_conf_wraped2nd_merge)
+        1, 1), activation='relu', padding='same')(flow_conf_wraped2nd_depth_merge)
     # layer3b should be feeded forward later
     layer_wraped_input_b = Conv2D(32, kernel_size=(1, 3), strides=(
         1, 1), activation='relu', padding='same')(layer_wraped_input_a)
@@ -304,10 +307,10 @@ def iterative_net_depth(batch_size):
     normals_output = Lambda(lambda x: slice(
         x, (0, 0, 0, 1), (-1, -1, -1, -1)), name='normals_output')(layer11)
 
-    bootstrap_motion_depth_normal = Model(inputs=[image_pair, optical_flow_input, optical_flow_conf_input],
+    iteraive_motion_depth_normal = Model(inputs=[image_pair, optical_flow_input, optical_flow_conf_input, prev_motion],
                                           outputs=[motion_output, depth_output, normals_output])
 
-    return bootstrap_motion_depth_normal
+    return iterative_motion_depth_normal
 
     #from tensorflow.python.keras.utils import plot_model
     # plot_model(bootstrap_motion_depth_normal,

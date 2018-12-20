@@ -30,3 +30,17 @@ def warped_image_from_flow(inputs):
     # This layer requires batch size to be specified for some reason
     return warp.dense_image_warp(
         second_image_48_64, flow)
+
+
+def depth_from_flow_and_motion(inputs):
+    flow = inputs[0]
+    motion = inputs[1]
+
+    intrinsics = [0.89115971, 1.18821287, 0.5, 0.5]
+    flow_nchw = tf.transpose(flow, [0, 3, 1, 2])
+    rotation = tf.slice(motion, [0,0], [-1, 3])
+    translation = tf.slice(motion, [0,3], [-1, 3])
+
+    depth_nchw = lmbspecialops.flow_to_depth2(flow_nchw, intrinsics, rotation, translation, rotation_format='angleaxis3', inverse_depth=True, normalized_flow=False)
+
+    return tf.transpose(flow_ncwh, [0, 2, 3, 1])
